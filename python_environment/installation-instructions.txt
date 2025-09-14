@@ -1,0 +1,52 @@
+First, you must have your Python enviroment for deep learning. You can
+install miniconda and create that enviroment. See
+
+https://docs.conda.io/en/latest/miniconda.html
+
+For instance, in Ubuntu 20.04 or above, you may want to download
+Miniconda3-py312_24.5.0-0-Linux-x86_64.sh and execute (or a newer
+version with python 3.13, for instance)
+
+ssh Miniconda3-py312_24.5.0-0-Linux-x86_64.sh
+
+to install miniconda with Python 3.12 in your 64-bit machine.
+
+A new environment for mo433 in conda can be created by
+
+conda env create -f environment.yml
+
+You may use
+
+conda activate mo433
+
+to activate this environment, or 
+
+conda deactivate
+
+to deactivate it.
+
+The environment.yml already comes with the needed packages so far, but if you
+need to install a package, follow the instructions below.
+
+conda install <package-name>
+
+Similarly, you may unsinstall packages by typing
+
+conda uninstall <package-name>
+
+For pytorch, it is better to follow instructions at
+https://pytorch.org/
+
+For instance, to install it with cuda toolkit for execution in the GPU
+of your machine, the command will be
+
+conda install pytorch torchvision -c pytorch -c nvidia
+conda install -c nvidia cudatoolkit
+
+For some packages, such as torch-summary and torch-snippets, you might
+have to use
+
+pip install torch-summary
+pip install torch-snippets
+
+Have fun!
