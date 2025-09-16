@@ -45,6 +45,10 @@
 - **Página 7, aula 2** 
 - **Description of Doubt:** 
     Precisamos definir melhor quem é x e quem é $x_i$
+
+- **Página 14, aula 2** 
+- **Description of Doubt:** 
+    Explicar o Kronecker's delta
     
 
 ## Context
