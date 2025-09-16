@@ -1,0 +1,5 @@
+Convolutional AutoEncoder Clustering Metrics
+
+Original Data: Silhouette=0.302, ARI=0.291
+Conv Encoder Latent (20736D): Silhouette=0.466, ARI=0.542
+PCA Reduced (50D): Silhouette=0.403, ARI=0.340
