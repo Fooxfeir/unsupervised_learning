@@ -49,6 +49,10 @@
 - **Página 14, aula 2** 
 - **Description of Doubt:** 
     Explicar o Kronecker's delta
+
+- **Página 10, aula 4** 
+- **Description of Doubt:** 
+    Como seriam os mapas de 3 dimensões do espaço latente de um auto-encoder convolucional?
     
 
 ## Context
