@@ -1,0 +1,7 @@
+{
+  "augs": "topil,hflip,totensor,normalize",
+  "run_name": null,
+  "out_root": "./runs/simclr",
+  "image_size": 224,
+  "temperature": 0.2
+}

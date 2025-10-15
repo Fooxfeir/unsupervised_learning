@@ -18,6 +18,38 @@ import os
 import glob
 from PIL import Image
 
+# top-level utils
+import json, time, hashlib
+from pathlib import Path
+
+def safe(s: str) -> str:
+    return "".join(c if c.isalnum() or c in "-_." else "_" for c in s)
+
+class RunLogger:
+    def __init__(self, out_root, args, aug_names):
+        stamp = time.strftime("%Y%m%d-%H%M%S")
+        # Make a compact ID from the aug list so names are stable
+        aug_tag = "none" if not aug_names else "-".join([safe(a) for a in aug_names])
+        # You can also fold other hparams here if you like:
+        #base = args.run_name or f"bs{args.batch_size}_tau{args.temperature}_seed{args.seed}_{aug_tag}"
+        self.dir = Path(out_root) / f"{safe(aug_tag)}_{args.temperature}"
+        (self.dir / "figs").mkdir(parents=True, exist_ok=True)
+        (self.dir / "artifacts").mkdir(parents=True, exist_ok=True)
+
+        # Save config summaries
+        (self.dir / "config.json").write_text(json.dumps(vars(args), indent=2))
+        (self.dir / "augments.json").write_text(json.dumps(aug_names, indent=2))
+
+    def p(self, *parts) -> Path:
+        """Build a path under this run dir."""
+        path = self.dir.joinpath(*parts)
+        path.parent.mkdir(parents=True, exist_ok=True)
+        return path
+
+    def save_json(self, name, obj):
+        self.p(f"{name}.json").write_text(json.dumps(obj, indent=2))
+
+
 # ------------------------------
 # Custom Dataset
 # ------------------------------
@@ -61,7 +93,7 @@ class CustomImageDataset(Dataset):
 # ------------------------------
 
 
-def create_data_loaders(data_dir, batch_size=32, image_size=224, train_split=0.8):
+def create_data_loaders(data_dir, batch_size=64, image_size=224, train_split=0.8):
     transform = transforms.Compose([
         transforms.Resize((image_size, image_size)),
         transforms.ToTensor(),
@@ -87,7 +119,7 @@ def create_data_loaders(data_dir, batch_size=32, image_size=224, train_split=0.8
     val_dataset = torch.utils.data.Subset(dataset, val_indices)
     
     train_loader = DataLoader(train_dataset, batch_size=batch_size, shuffle=True,
-                              num_workers=4, pin_memory=True, drop_last=True)
+                              num_workers=4, pin_memory=True, drop_last=False)
     val_loader = DataLoader(val_dataset, batch_size=batch_size, shuffle=False,
                             num_workers=4, pin_memory=True)
     
@@ -216,6 +248,7 @@ def train_batch_simclr(data, model, optimizer, augment_fn, temperature=0.5):
 
 @torch.no_grad()
 def validate_batch_simclr(data, model, augment_fn, temperature=0.5):
+    print("temperature:", temperature)
     model.eval()
     data = data.to(device)
     
@@ -317,10 +350,35 @@ device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 torch.cuda.empty_cache()
 
 
-DATA_DIR = "./data/corel"
-BATCH_SIZE = 8
+DATA_DIR = "/home/guilhermo.oliveira/unsupervised_learning/UnsupervisedFeatureLearningCNNs/data/corel"
+BATCH_SIZE = 16
 IMAGE_SIZE = 224
 NUM_EPOCHS = 5
+
+import argparse
+from simclr_augs import build_transform, TwoCropsTransform
+
+parser = argparse.ArgumentParser()
+parser.add_argument(
+    "--augs",
+    type=str,
+    default="",  # empty -> all augs
+    help="Comma-separated list of augmentations to apply "
+         "(choices: topil,rotate,affine,hflip,totensor,noise,clamp,normalize). "
+         "Empty uses all in default order."
+)
+parser.add_argument("--run_name", type=str, default=None,
+                    help="Optional human-readable tag for this run.")
+parser.add_argument("--out_root", type=str, default="./runs/simclr",
+                    help="Where to store per-run outputs.")
+parser.add_argument("--image_size", type=int, default=224)  # if you resize elsewhere, keep as is
+parser.add_argument("--temperature", type=float, default=0.5)
+args = parser.parse_args()
+
+# parse names from CLI
+selected = [s for s in args.augs.split(",") if s.strip()]  # [] means "all"
+augment_fn= build_transform(selected)
+
 
 trn_dl, val_dl, dataset = create_data_loaders(DATA_DIR, BATCH_SIZE, IMAGE_SIZE)
 
@@ -328,57 +386,9 @@ model = SimCLREncoder(latent_dim=128).to(device)
 optimizer = torch.optim.AdamW(model.parameters(), lr=0.003, weight_decay=1e-4)  # Increased LR
 scheduler = torch.optim.lr_scheduler.StepLR(optimizer, step_size=3, gamma=0.5)  # Simpler scheduler
 
-augment_fn = get_simclr_augmentation()
 
-num_epochs = 22 # Reduced epochs for MNIST
-log = Report(num_epochs)
-
-for epoch in range(num_epochs):
-    
-    epoch_losses = []
-    N = len(trn_dl)
-
-    for batch in trn_dl:
-        loss=train_batch_simclr(batch[0], model, optimizer, augment_fn)
-        epoch_losses.append(loss.item())
-        log.record(pos=(epoch + (len(epoch_losses))/N), loss=loss.item(), end="\r")
-
-    val_losses = []
-    N=len(val_dl)
-
-    for batch in val_dl:
-        loss=validate_batch_simclr(batch[0], model, augment_fn)
-        val_losses.append(loss.item())
-        log.record(pos=(epoch + (len(val_losses))/N), val_loss=loss.item(), end="\r")
-    
-    
-    print(f"Epoch {epoch+1}/{num_epochs}, Val Loss: {np.mean(val_losses):.4f}")
-
-    scheduler.step()
-
-
-print("SimCLR Training completed!")
-
-# Cria a figura e o eixo
-fig, ax = plt.subplots(figsize=(8,6))
-
-# Gera o gráfico usando seu método
-log.plot_epochs(log=True, ax=ax)  # assume que plot_epochs aceita parâmetro 'ax'
-
-# Ajustes opcionais
-ax.set_title("SimCLR - Model Loss", fontsize=14, fontweight='bold')
-ax.set_xlabel("Epoch")
-ax.set_ylabel("Metrics")
-
-# Salva a figura
-plt.tight_layout()
-plt.savefig("./figs/simclr/loss.png", dpi=300, bbox_inches='tight')
-
-# Mostra a figura
-plt.show()
-
-
-log.plot_epochs(log=True)
+selected = [s for s in args.augs.split(",") if s.strip()]  # your current parse
+runlog = RunLogger(args.out_root, args, selected)
 
 # ------------------------------
 # Data Augmentations
@@ -412,8 +422,59 @@ for i in range(1, 10):
 
 plt.suptitle('SimCLR Data Augmentations (RGB)', fontsize=14, fontweight='bold')
 plt.tight_layout()
-plt.savefig('./figs/simclr/simclr_augmentations.png', dpi=300, bbox_inches='tight')
+plt.savefig(runlog.p("figs", "simclr_augmentations.png"), dpi=300, bbox_inches='tight')
 plt.show()
+
+
+
+num_epochs = 22 # Reduced epochs for MNIST
+log = Report(num_epochs)
+
+for epoch in range(num_epochs):
+    
+    epoch_losses = []
+    N = len(trn_dl)
+
+    for batch in trn_dl:
+        loss=train_batch_simclr(batch[0], model, optimizer, augment_fn, args.temperature)
+        epoch_losses.append(loss.item())
+        log.record(pos=(epoch + (len(epoch_losses))/N), loss=loss.item(), end="\r")
+
+    val_losses = []
+    N=len(val_dl)
+
+    for batch in val_dl:
+        loss=validate_batch_simclr(batch[0], model, augment_fn, args.temperature)
+        val_losses.append(loss.item())
+        log.record(pos=(epoch + (len(val_losses))/N), val_loss=loss.item(), end="\r")
+    
+    
+    print(f"Epoch {epoch+1}/{num_epochs}, Val Loss: {np.mean(val_losses):.4f}")
+
+    scheduler.step()
+
+print("SimCLR Training completed!")
+
+# Cria a figura e o eixo
+fig, ax = plt.subplots(figsize=(8,6))
+
+# Gera o gráfico usando seu método
+log.plot_epochs(log=True, ax=ax)  # assume que plot_epochs aceita parâmetro 'ax'
+
+# Ajustes opcionais
+ax.set_title("SimCLR - Model Loss", fontsize=14, fontweight='bold')
+ax.set_xlabel("Epoch")
+ax.set_ylabel("Metrics")
+
+# Salva a figura
+plt.tight_layout()
+plt.savefig(runlog.p("figs", "loss.png"), dpi=300, bbox_inches='tight')
+
+# Mostra a figura
+plt.show()
+
+
+log.plot_epochs(log=True)
 
 
 
@@ -442,7 +503,7 @@ for method, m in metrics.items():
     print(text)
     export_text+=text+"\n"
 
-with open("./figs/simclr/metrics.txt", "w") as f:
+with open(runlog.p("figs", "metrics.txt"), "w") as f:
     f.write(export_text)
 
 # ------------------------------
@@ -479,5 +540,41 @@ plt.colorbar(drawedges=True)
 plt.title('t-SNE Projection of SimCLR Latent Space', fontsize=14, fontweight='bold')
 plt.xlabel('t-SNE Component 1')
 plt.ylabel('t-SNE Component 2')
-plt.savefig('./figs/simclr/conv_autoencoder_tsne.png', dpi=300, bbox_inches='tight')
+plt.savefig(runlog.p("figs", "tsne.png"), dpi=300, bbox_inches='tight')
+plt.show()
+
+device = next(model.parameters()).device  # pega a device do modelo
+
+# ------------------------------
+# T-Sne Plot train + val
+# ------------------------------
+
+latent_vectors = []
+classes = []
+
+model.eval()
+with torch.no_grad():
+    for loader in [trn_dl, val_dl]:
+        for im, clss, _ in loader:
+            im = im.to(device)
+            clss = clss.to(device)
+            z = model.encoder(im)
+            z = z.view(z.size(0), -1)
+            latent_vectors.append(z.cpu())
+            classes.append(clss.cpu())
+
+latent_vectors = torch.cat(latent_vectors).numpy()
+classes = torch.cat(classes).numpy()
+
+tsne = TSNE(2)
+clustered = tsne.fit_transform(latent_vectors)
+
+fig = plt.figure(figsize=(12,10))
+cmap = plt.get_cmap('Spectral', 10)
+plt.scatter(*zip(*clustered), c=classes, cmap=cmap)
+plt.colorbar(drawedges=True)
+plt.title('t-SNE Projection of SimCLR Latent Space: Train + Val', fontsize=14, fontweight='bold')
+plt.xlabel('t-SNE Component 1')
+plt.ylabel('t-SNE Component 2')
+plt.savefig(runlog.p("figs", "tsne_val+train.png"), dpi=300, bbox_inches='tight')
 plt.show()

@@ -87,7 +87,7 @@ def create_data_loaders(data_dir, batch_size=32, image_size=224, train_split=0.8
     val_dataset = torch.utils.data.Subset(dataset, val_indices)
     
     train_loader = DataLoader(train_dataset, batch_size=batch_size, shuffle=True,
-                              num_workers=4, pin_memory=True, drop_last=True)
+                              num_workers=4, pin_memory=True)
     val_loader = DataLoader(val_dataset, batch_size=batch_size, shuffle=False,
                             num_workers=4, pin_memory=True)
     
@@ -385,8 +385,8 @@ device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 torch.cuda.empty_cache()
 
 
-DATA_DIR = "./data/corel"
-BATCH_SIZE = 8
+DATA_DIR = "/home/guilhermo.oliveira/unsupervised_learning/UnsupervisedFeatureLearningCNNs/data/corel"
+BATCH_SIZE = 32
 IMAGE_SIZE = 224
 NUM_EPOCHS = 5
 
